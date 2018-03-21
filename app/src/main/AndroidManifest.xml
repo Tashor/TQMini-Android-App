@@ -6,7 +6,6 @@
 
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
-    <uses-permission android:name="android.permission.BLUETOOTH_PRIVILEGED" />
 
     <application
         android:name=".BluetoothClass"
@@ -23,6 +22,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".DeviceListAdapterActivity"
+            android:configChanges="orientation|keyboardHidden"
+            android:label="select a device to connect"
+            android:theme="@android:style/Theme.Holo.Dialog"/>
     </application>
 
 </manifest>

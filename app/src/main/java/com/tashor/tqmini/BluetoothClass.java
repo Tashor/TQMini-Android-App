@@ -3,136 +3,202 @@ package com.tashor.tqmini;
 import android.app.Application;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothServerSocket;
 import android.bluetooth.BluetoothSocket;
-import android.widget.Toast;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.util.Set;
 import java.util.UUID;
 
 /**
- * Created by Riko on 17.03.2018.
+ * Created by Tashor on 17.03.2018.
  */
 
 public class BluetoothClass extends Application {
-    // ToDo: find better solution than using hardware address
-    private final String DEVICE_ADDRESS = "00:21:13:00:F2:22";      // hardware adress of HC-05 module
-    private static final UUID PORT_UUID = UUID.fromString("00001101-0000-1000-8000-00805f9b34fb");     //Serial Port Service ID
 
-    private BluetoothDevice BTDevice;
-    private BluetoothSocket BTSocket;
-    private OutputStream outStream;
-    private InputStream inStream;
+    private static final String appName = "TQMini";
+    private static final UUID MY_UUID = UUID.fromString("00001101-0000-1000-8000-00805f9b34fb");     //Serial Port Service ID
 
-    private boolean deviceConnected = false;
+    private BluetoothAdapter mBTAdapter;
+    private AcceptThread mAcceptThread;
+    private ConnectThread mConnectThread;
+    private BluetoothDevice mmBTDevice;
+    private UUID deviceUUID;
 
-    public boolean connect() {
-        boolean success = false;
-        if(setupBluetooth()) {
-            if(connectBluetooth()) {
-                success = true;
-                deviceConnected = true;
+    private ConnectedThread mConnectedThread;
+
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        mBTAdapter = BluetoothAdapter.getDefaultAdapter();
+    }
+
+    private class AcceptThread extends Thread {
+        private final BluetoothServerSocket mmBTServerSocket;
+
+        private AcceptThread() {
+            BluetoothServerSocket tmp = null;
+
+            try {
+                tmp = mBTAdapter.listenUsingInsecureRfcommWithServiceRecord(appName, MY_UUID);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            mmBTServerSocket = tmp;
+        }
+
+        public void run() {
+            BluetoothSocket BTSocket = null;
+
+            try {
+                BTSocket = mmBTServerSocket.accept();
+            } catch (IOException e){
+                e.printStackTrace();
+            }
+
+            if(BTSocket != null){
+                connected(BTSocket, mmBTDevice);
             }
         }
-        return success;
-    }
 
-    public void disconnect() {
-        try {
-            outStream.close();
-            inStream.close();
-            BTSocket.close();
-            deviceConnected = false;
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
-
-    private boolean setupBluetooth() {
-
-        boolean found = false;  // gets true when setup successful
-
-        BluetoothAdapter BTAdapter = BluetoothAdapter.getDefaultAdapter();
-        if (BTAdapter == null) {
-            Toast.makeText(getApplicationContext(), "No Bluetooth Adapter found!", Toast.LENGTH_SHORT).show();
-        }
-        if (!BTAdapter.isEnabled()) {
-            BTAdapter.enable();
+        public void cancel() {
             try {
-                Thread.sleep(1500);
-            } catch (InterruptedException e) {
+                mmBTServerSocket.close();
+            } catch (IOException e) {
                 e.printStackTrace();
             }
         }
-        Set<BluetoothDevice> bondedDevices = BTAdapter.getBondedDevices();
-        if (bondedDevices.isEmpty()) {
-            Toast.makeText(getApplicationContext(), "No paired devices found. Please pair the device!", Toast.LENGTH_LONG).show();
-        } else {
+    }
 
-            for (BluetoothDevice iterator : bondedDevices) {
-                if (iterator.getAddress().equals(DEVICE_ADDRESS)) {
-                    BTDevice = iterator;
-                    found = true;
+    private class ConnectThread extends Thread {
+        private BluetoothSocket mmBTSocket;
+
+        public ConnectThread (BluetoothDevice device, UUID uuid) {
+            mmBTDevice = device;
+            deviceUUID = uuid;
+        }
+
+        public void run() {
+            BluetoothSocket tmp = null;
+
+            try {
+                tmp = mmBTDevice.createRfcommSocketToServiceRecord(deviceUUID);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            mmBTSocket = tmp;
+
+            mBTAdapter.cancelDiscovery();
+
+            try {
+                mmBTSocket.connect();
+            } catch (IOException e) {
+                try {
+                    mmBTSocket.close();
+                } catch (IOException e1) {
+                    e1.printStackTrace();
+                }
+                e.printStackTrace();
+            }
+            connected(mmBTSocket, mmBTDevice);
+        }
+
+        public void cancel() {
+            try {
+                mmBTSocket.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+
+    /**
+     * Start the AcceptThread.
+      */
+    public synchronized void start() {
+        if(mConnectThread != null) {
+            mConnectThread.cancel();
+            mConnectThread = null;
+        }
+        if(mAcceptThread == null) {
+            mAcceptThread = new AcceptThread();
+            mAcceptThread.start();
+        }
+    }
+
+    /**
+     *  AcceptThread waits for connection.
+     *  Start ConnectThread and attempt to make a connection.
+      */
+    public void startConnection(BluetoothDevice device) {
+        mConnectThread = new ConnectThread(device, MY_UUID);
+        mConnectThread.start();
+    }
+
+    private class ConnectedThread extends Thread {
+        private final BluetoothSocket mmBTSocket;
+        private final InputStream mmInStream;
+        private final OutputStream mmOutStream;
+
+        public ConnectedThread(BluetoothSocket socket) {
+            mmBTSocket = socket;
+            InputStream tmpIn = null;
+            OutputStream tmpOut = null;
+
+
+            try {
+                tmpIn = mmBTSocket.getInputStream();
+                tmpOut = mmBTSocket.getOutputStream();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+
+            mmInStream = tmpIn;
+            mmOutStream = tmpOut;
+        }
+
+        public void run() {
+            byte[] buffer = new byte[1024];
+            int bytes;
+
+            // ToDo: handle incoming messages, if needed in the future
+            while(true) {
+                try {
+                    bytes = mmInStream.read(buffer);
+                    String incomingMessage = new String(buffer, 0, bytes);
+                } catch (IOException e) {
+                    e.printStackTrace();
                     break;
                 }
             }
         }
-        return found;
-    }
 
-    private boolean connectBluetooth() {
-        boolean connected = true;
-        try {
-            BTSocket = BTDevice.createRfcommSocketToServiceRecord(PORT_UUID);
-            BTSocket.connect();
-        } catch (IOException e) {
-            e.printStackTrace();
-            connected = false;
-        }
-
-        if (connected) {
+        public void write(byte[] bytes) {
             try {
-                outStream = BTSocket.getOutputStream();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-            try {
-                inStream = BTSocket.getInputStream();
+                mmOutStream.write(bytes);
             } catch (IOException e) {
                 e.printStackTrace();
             }
         }
-        return connected;
-    }
 
-
-    public boolean isDeviceConnected() {
-        return deviceConnected;
-    }
-
-
-    public void sendByte(byte value) {
-        try {
-            outStream.write(value);
-            Thread.sleep(5);
-        } catch (IOException e) {
-            e.printStackTrace();
-        } catch (InterruptedException e) {
-            e.printStackTrace();
+        public void cancel() {
+            try {
+                mmBTSocket.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
         }
     }
 
+    private void connected(BluetoothSocket mmBTSocket, BluetoothDevice mmBTDevice) {
+        mConnectedThread = new ConnectedThread(mmBTSocket);
+        mConnectedThread.start();
+    }
 
-    public void sendText(String text) {
-        try {
-            outStream.write(text.getBytes());
-            Thread.sleep(5);
-        } catch (IOException e) {
-            e.printStackTrace();
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
+    public void sendBytes(byte[] bytesOut) {
+        mConnectedThread.write(bytesOut);
     }
 }
